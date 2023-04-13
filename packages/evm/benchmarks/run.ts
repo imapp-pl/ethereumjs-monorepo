@@ -1,4 +1,5 @@
 import Benchmark from 'benchmark'
+import { sampleOpcodes } from './sampleOpcodes'
 
 export interface BenchmarkType {
   [key: string]: Function
@@ -10,10 +11,9 @@ export interface BenchmarksType {
 
 // Add an import and a BENCHMARKS entry to list a new benchmark
 const BENCHMARKS: BenchmarksType = {
-  // TODO: Define benchmarks here
-  // mainnetBlocks: {
-  //   function: mainnetBlocks,
-  // },
+  sampleOpcodes: {
+    function: sampleOpcodes,
+  },
 }
 
 const onCycle = (event: Benchmark.Event) => {
