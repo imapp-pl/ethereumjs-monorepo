@@ -1,4 +1,4 @@
-import Benchmark from 'benchmark'
+import * as Benchmark from 'benchmark'
 import { sampleOpcodes } from './sampleOpcodes'
 
 export interface BenchmarkType {
@@ -17,6 +17,7 @@ const BENCHMARKS: BenchmarksType = {
 }
 
 const onCycle = (event: Benchmark.Event) => {
+  console.log(event)
   console.log(String(event.target))
 }
 

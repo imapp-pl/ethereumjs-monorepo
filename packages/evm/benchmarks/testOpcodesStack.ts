@@ -9,6 +9,9 @@ import { EVM, EVMInterface } from '../dist'
 import { DefaultStateManager } from '../../statemanager/dist'
 import { Address, MAX_INTEGER_BIGINT, KECCAK256_RLP_ARRAY } from '../../util/dist'
 
+// TODO: write a test that goes through all opcodes
+//  and checks which of them leave something on the stack
+
 const OPCODES_FIXTURE = 'benchmarks/fixture/opcodes.json'
 
 const run = async (evm: EVMInterface, opcodes: string) => {
@@ -18,7 +21,7 @@ const run = async (evm: EVMInterface, opcodes: string) => {
   })
 }
 
-export async function sampleOpcodes(suite: Benchmark.Suite) {
+export async function sampleOpcodes(suite?: Benchmark.Suite) {
   let data = JSON.parse(readFileSync(OPCODES_FIXTURE, 'utf8'))
 
   /**
@@ -73,11 +76,24 @@ export async function sampleOpcodes(suite: Benchmark.Suite) {
   for (const opcodes of data) {
     const evmCopy = evm.copy()
 
-    suite.add({
-      name: `Running Opcode: ${opcodes}`,
-      fn: async () => {
-        await run(evmCopy, opcodes)
-      },
+    let z = await evmCopy.runCode({
+      code: Buffer.from(opcodes, 'hex'),
+      gasLimit: BigInt(0xffff),
     })
+    if (z.runState.stack._store.length > 0) {
+      console.log(opcodes, z.runState.stack._store)
+      console.log('XXXXXXXXXXXXXXx')
+    }
+
+    if (suite) {
+      suite.add({
+        name: `Running Opcode: ${opcodes}`,
+        fn: async () => {
+          await run(evmCopy, opcodes)
+        },
+      })
+    } else {
+      await run(evmCopy, opcodes)
+    }
   }
 }
