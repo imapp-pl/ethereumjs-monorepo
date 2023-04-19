@@ -1,5 +1,5 @@
-import { readFileSync } from 'fs'
-import * as Benchmark from 'benchmark'
+const { ArgumentParser } = require('argparse')
+import Benchmark = require('benchmark')
 import { Block } from '../../block/dist'
 import { Blockchain } from '../../blockchain/dist'
 import { Common, Hardfork, ConsensusType, ConsensusAlgorithm } from '../../common/dist'
@@ -9,23 +9,21 @@ import { EVM, EVMInterface } from '../dist'
 import { DefaultStateManager } from '../../statemanager/dist'
 import { Address, MAX_INTEGER_BIGINT, KECCAK256_RLP_ARRAY } from '../../util/dist'
 
-const OPCODES_FIXTURE = 'benchmarks/fixture/opcodes.json'
-
-const run = async (evm: EVMInterface, opcodes: string) => {
-  await evm.runCode({
-    code: Buffer.from(opcodes, 'hex'),
-    gasLimit: BigInt(0xffff),
+export async function main() {
+  const parser = new ArgumentParser({ description: 'Benchmark arbitrary bytecode.' })
+  parser.add_argument('bytecode', { help: 'Bytecode to run', type: 'str' })
+  parser.add_argument('-s', '--sampleSize', {
+    help: 'Number of benchmarks to perform',
+    type: 'int',
+    default: 1,
   })
-}
-
-export async function sampleOpcodes(suite: Benchmark.Suite) {
-  let data = JSON.parse(readFileSync(OPCODES_FIXTURE, 'utf8'))
+  let args = parser.parse_args()
+  let opcodes = args.bytecode
 
   /**
    * Debug loggers functions are not called if there is no DEBUG env variable set,
    * so we don't have to care about that.
    */
-
   const common = Common.custom({
     chainId: 1234,
     networkId: 1234,
@@ -66,18 +64,51 @@ export async function sampleOpcodes(suite: Benchmark.Suite) {
   // console.log(blockchain)
   // console.log(await blockchain.getBlock(0))
 
-  const evm = new EVM({ common, eei })
+  const initEvm = new EVM({ common, eei })
   //TODO: tego nie jestem pewny, podejrzeć w testach takie użycie
   // evm._common.genesis().stateRoot = stateManager._trie.root
 
-  for (const opcodes of data) {
-    const evmCopy = evm.copy()
+  let evm = initEvm.copy()
 
-    suite.add({
-      name: `Running Opcode: ${opcodes}`,
-      fn: async () => {
-        await run(evmCopy, opcodes)
-      },
-    })
+  const bench = new Benchmark({
+    name: `Running Opcodes`,
+    fn: async () => {
+      let results = await evm.runCode({
+        code: Buffer.from(opcodes, 'hex'),
+        gasLimit: BigInt(0xffff),
+      })
+      console.log(results.executionGasUsed.toString())
+    },
+    // onCycle: (event: Benchmark.Event) => {
+    //   // console.log(event)
+    //   // console.log(String(event.target))
+    //   evm = initEvm.copy()
+    // },
+    minSamples: 1,
+    maxTime: 5,
+  })
+  bench.run()
+  console.log(bench)
+  const memoryData = process.memoryUsage()
+  const formatMemoryUsage = (data: number) => `${Math.round((data / 1024 / 1024) * 100) / 100} MB`
+  const memoryUsage = {
+    rss: `${formatMemoryUsage(
+      memoryData.rss
+    )} -> Resident Set Size - total memory allocated for the process execution`,
+    heapTotal: `${formatMemoryUsage(memoryData.heapTotal)} -> total size of the allocated heap`,
+    heapUsed: `${formatMemoryUsage(
+      memoryData.heapUsed
+    )} -> actual memory used during the execution`,
+    external: `${formatMemoryUsage(memoryData.external)} -> V8 external memory`,
   }
+  console.log(memoryUsage)
 }
+
+main()
+  .then(() => {
+    console.log('Benchmark run finished.')
+    process.exit(0)
+  })
+  .catch((e: Error) => {
+    throw e
+  })
