@@ -1,29 +1,24 @@
 const { ArgumentParser } = require('argparse')
-import Benchmark = require('benchmark')
-import { Block } from '../../block/dist'
-import { Blockchain } from '../../blockchain/dist'
-import { Common, Hardfork, ConsensusType, ConsensusAlgorithm } from '../../common/dist'
-import { MemoryLevel } from 'memory-level'
-import { EEI } from '../../vm/dist'
-import { EVM, EVMInterface } from '../dist'
-import { DefaultStateManager } from '../../statemanager/dist'
-import { Address, MAX_INTEGER_BIGINT, KECCAK256_RLP_ARRAY } from '../../util/dist'
+const { Benchmark } = require('benchmark')
+const { Block } = require('@ethereumjs/block')
+const { Blockchain } = require('@ethereumjs/blockchain')
+const { Common, Hardfork, ConsensusType, ConsensusAlgorithm } = require('@ethereumjs/common')
+const { MemoryLevel } = require('memory-level')
+const { EEI } = require('@ethereumjs/vm')
+const { EVM } = require('@ethereumjs/evm')
+const { DefaultStateManager } = require('@ethereumjs/statemanager')
+const { Address, MAX_INTEGER_BIGINT, KECCAK256_RLP_ARRAY } = require('@ethereumjs/util')
 
-export async function main() {
-  const parser = new ArgumentParser({ description: 'Benchmark arbitrary bytecode.' })
-  parser.add_argument('bytecode', { help: 'Bytecode to run', type: 'str' })
-  parser.add_argument('-s', '--sampleSize', {
-    help: 'Number of benchmarks to perform',
-    type: 'int',
-    default: 1,
-  })
-  let args = parser.parse_args()
-  let opcodes = args.bytecode
-
+async function runBenchmark(bytecode: string) {
   /**
+   * Benchmarking bytecode passed as command line argument.
+   * The goal is to set up EVM to run the code as fast as possible
+   * and without executing unnecessary code.
+   *
    * Debug loggers functions are not called if there is no DEBUG env variable set,
    * so we don't have to care about that.
    */
+
   const common = Common.custom({
     chainId: 1234,
     networkId: 1234,
@@ -43,7 +38,7 @@ export async function main() {
     dnsNetworks: [],
   })
   const stateManager = new DefaultStateManager() //Creates in memory MapDB
-  const db = new MemoryLevel()
+  const db = new MemoryLevel() as any
   const blockData = {
     header: {
       parentHash: '0x000000000000000000000000000000000000000000000000000000000000000',
@@ -58,55 +53,87 @@ export async function main() {
   const genesisBlock = Block.fromBlockData(blockData)
   const blockchain = await Blockchain.create({ common, db, genesisBlock })
   const eei = new EEI(stateManager, common, blockchain)
+  const evm = new EVM({ common, eei })
 
-  // console.log(common)
-  // console.log(stateManager)
-  // console.log(blockchain)
-  // console.log(await blockchain.getBlock(0))
-
-  const initEvm = new EVM({ common, eei })
-  //TODO: tego nie jestem pewny, podejrzeć w testach takie użycie
-  // evm._common.genesis().stateRoot = stateManager._trie.root
-
-  let evm = initEvm.copy()
+  let promiseResolve: any
+  const resultPromise = new Promise((resolve, reject) => {
+    promiseResolve = resolve
+  })
 
   const bench = new Benchmark({
+    defer: true,
     name: `Running Opcodes`,
-    fn: async () => {
-      let results = await evm.runCode({
-        code: Buffer.from(opcodes, 'hex'),
-        gasLimit: BigInt(0xffff),
-      })
-      console.log(results.executionGasUsed.toString())
+    fn: async (deferred: any) => {
+      try {
+        await evm.runCode({
+          code: Buffer.from(bytecode, 'hex'),
+          gasLimit: BigInt(0xffff),
+        })
+        deferred.resolve()
+      } catch (err) {
+        console.log('ERROR', err)
+      }
     },
-    // onCycle: (event: Benchmark.Event) => {
-    //   // console.log(event)
-    //   // console.log(String(event.target))
-    //   evm = initEvm.copy()
-    // },
+    onCycle: (event: any) => {
+      stateManager.clearContractStorage(Address.zero())
+    },
     minSamples: 1,
-    maxTime: 5,
+    // maxTime: 5,
   })
-  bench.run()
-  console.log(bench)
-  const memoryData = process.memoryUsage()
-  const formatMemoryUsage = (data: number) => `${Math.round((data / 1024 / 1024) * 100) / 100} MB`
-  const memoryUsage = {
-    rss: `${formatMemoryUsage(
-      memoryData.rss
-    )} -> Resident Set Size - total memory allocated for the process execution`,
-    heapTotal: `${formatMemoryUsage(memoryData.heapTotal)} -> total size of the allocated heap`,
-    heapUsed: `${formatMemoryUsage(
-      memoryData.heapUsed
-    )} -> actual memory used during the execution`,
-    external: `${formatMemoryUsage(memoryData.external)} -> V8 external memory`,
-  }
-  console.log(memoryUsage)
+    .on('complete', () => {
+      console.log(bench)
+
+      //TODO: gather stats for output line
+
+      const memoryData = process.memoryUsage()
+      const formatMemoryUsage = (data: number) =>
+        `${Math.round((data / 1024 / 1024) * 100) / 100} MB`
+      const memoryUsage = {
+        rss: `${formatMemoryUsage(
+          memoryData.rss
+        )} -> Resident Set Size - total memory allocated for the process execution`,
+        heapTotal: `${formatMemoryUsage(memoryData.heapTotal)} -> total size of the allocated heap`,
+        heapUsed: `${formatMemoryUsage(
+          memoryData.heapUsed
+        )} -> actual memory used during the execution`,
+        external: `${formatMemoryUsage(memoryData.external)} -> V8 external memory`,
+      }
+      console.log(memoryUsage)
+
+      promiseResolve(bench.stats)
+    })
+    .run()
+
+  return resultPromise
 }
 
-main()
+async function runBenchmarks() {
+  /**
+   * Runs benchmark sampleSize times and writes results to standard output.
+   * Results are structured as CSV line as expected by the measurement tool
+   * which runs benchmarks from CLI.
+   */
+
+  const parser = new ArgumentParser({ description: 'Benchmark arbitrary bytecode.' })
+  parser.add_argument('bytecode', { help: 'Bytecode to run', type: 'str' })
+  parser.add_argument('-s', '--sampleSize', {
+    help: 'Number of benchmarks to perform',
+    type: 'int',
+    default: 1,
+  })
+  let args = parser.parse_args()
+  let bytecode = args.bytecode
+
+  for (let i = 0; i < args.sampleSize; i++) {
+    console.log(`Run #${i + 1}`)
+    let results = await runBenchmark(bytecode)
+    //TODO: output CSV line as expected by measurement tool
+    console.log(results)
+  }
+}
+
+runBenchmarks()
   .then(() => {
-    console.log('Benchmark run finished.')
     process.exit(0)
   })
   .catch((e: Error) => {
