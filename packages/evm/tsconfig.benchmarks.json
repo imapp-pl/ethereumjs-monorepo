@@ -4,9 +4,7 @@
     "lib": ["dom"],
     "sourceMap": false,
     "declaration": true,
-    "esModuleInterop": true,
-    "target": "es2022",
-    "module": "es2022"
+    "esModuleInterop": true
   },
   "include": ["benchmarks/**.ts"]
 }
