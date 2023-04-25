@@ -1,5 +1,6 @@
 const { ArgumentParser } = require('argparse')
 const { Benchmark } = require('benchmark')
+const _ = require('lodash')
 const { Block } = require('@ethereumjs/block')
 const { Blockchain } = require('@ethereumjs/blockchain')
 const { Common, Hardfork, ConsensusType, ConsensusAlgorithm } = require('@ethereumjs/common')
@@ -9,7 +10,16 @@ const { EVM } = require('@ethereumjs/evm')
 const { DefaultStateManager } = require('@ethereumjs/statemanager')
 const { Address, MAX_INTEGER_BIGINT, KECCAK256_RLP_ARRAY } = require('@ethereumjs/util')
 
-async function runBenchmark(bytecode: string) {
+type Stats = {
+  run_id?: number
+  iterations_count: number
+  engine_overhead_time_ns?: number
+  execution_loop_time_ns?: number
+  total_time_ns: number
+  std_dev_time_ns: number
+}
+
+async function runBenchmark(bytecode: string): Promise<Stats> {
   /**
    * Benchmarking bytecode passed as command line argument.
    * The goal is to set up EVM to run the code as fast as possible
@@ -56,7 +66,7 @@ async function runBenchmark(bytecode: string) {
   const evm = new EVM({ common, eei })
 
   let promiseResolve: any
-  const resultPromise = new Promise((resolve, reject) => {
+  const resultPromise: Promise<Stats> = new Promise((resolve, reject) => {
     promiseResolve = resolve
   })
 
@@ -81,26 +91,13 @@ async function runBenchmark(bytecode: string) {
     // maxTime: 5,
   })
     .on('complete', () => {
-      console.log(bench)
-
-      //TODO: gather stats for output line
-
-      const memoryData = process.memoryUsage()
-      const formatMemoryUsage = (data: number) =>
-        `${Math.round((data / 1024 / 1024) * 100) / 100} MB`
-      const memoryUsage = {
-        rss: `${formatMemoryUsage(
-          memoryData.rss
-        )} -> Resident Set Size - total memory allocated for the process execution`,
-        heapTotal: `${formatMemoryUsage(memoryData.heapTotal)} -> total size of the allocated heap`,
-        heapUsed: `${formatMemoryUsage(
-          memoryData.heapUsed
-        )} -> actual memory used during the execution`,
-        external: `${formatMemoryUsage(memoryData.external)} -> V8 external memory`,
-      }
-      console.log(memoryUsage)
-
-      promiseResolve(bench.stats)
+      promiseResolve({
+        iterations_count: bench.count,
+        engine_overhead_time_ns: null,
+        execution_loop_time_ns: null,
+        total_time_ns: Math.round(bench.stats.mean * 1_000_000_000),
+        std_dev_time_ns: Math.round(bench.stats.deviation * 1_000_000_000),
+      })
     })
     .run()
 
@@ -125,10 +122,21 @@ async function runBenchmarks() {
   let bytecode = args.bytecode
 
   for (let i = 0; i < args.sampleSize; i++) {
-    console.log(`Run #${i + 1}`)
     let results = await runBenchmark(bytecode)
-    //TODO: output CSV line as expected by measurement tool
-    console.log(results)
+    let stopCodeResults = await runBenchmark('00' + bytecode)
+    results.engine_overhead_time_ns = stopCodeResults.total_time_ns
+    results.execution_loop_time_ns = results.total_time_ns - stopCodeResults.total_time_ns
+    results.run_id = i + 1
+    const columnsOrder = [
+      'run_id',
+      'iterations_count',
+      'engine_overhead_time_ns',
+      'execution_loop_time_ns',
+      'total_time_ns',
+      'std_dev_time_ns',
+    ]
+    let row = _.at(results, columnsOrder)
+    console.log(row.toString())
   }
 }
 
