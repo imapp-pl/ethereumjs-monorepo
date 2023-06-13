@@ -1,22 +1,23 @@
-const { ArgumentParser } = require('argparse')
-const { Benchmark } = require('benchmark')
-const _ = require('lodash')
-const { Block } = require('@ethereumjs/block')
-const { Blockchain } = require('@ethereumjs/blockchain')
-const { Common, Hardfork, ConsensusType, ConsensusAlgorithm } = require('@ethereumjs/common')
-const { MemoryLevel } = require('memory-level')
-const { EEI } = require('@ethereumjs/vm')
-const { EVM } = require('@ethereumjs/evm')
-const { DefaultStateManager } = require('@ethereumjs/statemanager')
-const { Address, MAX_INTEGER_BIGINT, KECCAK256_RLP_ARRAY } = require('@ethereumjs/util')
+import { ArgumentParser } from 'argparse'
+import benchmark from 'benchmark'
+import _ from 'lodash'
+import { Dictionary } from 'lodash'
+import { Block } from '@ethereumjs/block'
+import { Blockchain } from '@ethereumjs/blockchain'
+import { Common, Hardfork, ConsensusType, ConsensusAlgorithm } from '@ethereumjs/common'
+import { MemoryLevel } from 'memory-level'
+import { EEI } from '@ethereumjs/vm'
+import { EVM } from '@ethereumjs/evm'
+import { DefaultStateManager } from '@ethereumjs/statemanager'
+import { Address, MAX_INTEGER_BIGINT, KECCAK256_RLP_ARRAY } from '@ethereumjs/util'
 
-type Stats = {
-  run_id?: number
-  iterations_count: number
-  engine_overhead_time_ns?: number
-  execution_loop_time_ns?: number
-  total_time_ns: number
-  std_dev_time_ns: number
+class Stats {
+  runId?: number
+  iterationsCount!: number
+  engineOverheadTimeNs?: number
+  executionLoopTimeNs?: number
+  totalTimeNs!: number
+  stdDevTimeNs!: number
 }
 
 async function runBenchmark(bytecode: string): Promise<Stats> {
@@ -70,7 +71,7 @@ async function runBenchmark(bytecode: string): Promise<Stats> {
     promiseResolve = resolve
   })
 
-  const bench = new Benchmark({
+  const bench = new benchmark({
     defer: true,
     name: `Running Opcodes`,
     fn: async (deferred: any) => {
@@ -87,16 +88,14 @@ async function runBenchmark(bytecode: string): Promise<Stats> {
     onCycle: (event: any) => {
       stateManager.clearContractStorage(Address.zero())
     },
-    minSamples: 1,
-    // maxTime: 5,
   })
     .on('complete', () => {
       promiseResolve({
-        iterations_count: bench.count,
-        engine_overhead_time_ns: null,
-        execution_loop_time_ns: null,
-        total_time_ns: Math.round(bench.stats.mean * 1_000_000_000),
-        std_dev_time_ns: Math.round(bench.stats.deviation * 1_000_000_000),
+        iterationsCount: bench.count,
+        engineOverheadTimeNs: null,
+        executionLoopTimeNs: null,
+        totalTimeNs: Math.round(bench.stats.mean * 1_000_000_000),
+        stdDevTimeNs: Math.round(bench.stats.deviation * 1_000_000_000),
       })
     })
     .run()
@@ -124,18 +123,18 @@ async function runBenchmarks() {
   for (let i = 0; i < args.sampleSize; i++) {
     let results = await runBenchmark(bytecode)
     let stopCodeResults = await runBenchmark('00' + bytecode)
-    results.engine_overhead_time_ns = stopCodeResults.total_time_ns
-    results.execution_loop_time_ns = results.total_time_ns - stopCodeResults.total_time_ns
-    results.run_id = i + 1
+    results.engineOverheadTimeNs = stopCodeResults.totalTimeNs
+    results.executionLoopTimeNs = results.totalTimeNs - stopCodeResults.totalTimeNs
+    results.runId = i + 1
     const columnsOrder = [
-      'run_id',
-      'iterations_count',
-      'engine_overhead_time_ns',
-      'execution_loop_time_ns',
-      'total_time_ns',
-      'std_dev_time_ns',
+      'runId',
+      'iterationsCount',
+      'engineOverheadTimeNs',
+      'executionLoopTimeNs',
+      'totalTimeNs',
+      'stdDevTimeNs',
     ]
-    let row = _.at(results, columnsOrder)
+    let row = _.at(results as unknown as Dictionary<string>, columnsOrder)
     console.log(row.toString())
   }
 }
