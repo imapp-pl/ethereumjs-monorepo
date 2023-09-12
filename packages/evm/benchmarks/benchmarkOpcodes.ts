@@ -31,6 +31,7 @@ async function runBenchmark(bytecode: string): Promise<Stats> {
 
   const bench = new benchmark({
     defer: true,
+    maxTime: 0.5,
     name: `Running Opcodes`,
     fn: async (deferred: any) => {
       try {
